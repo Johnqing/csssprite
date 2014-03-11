@@ -1,0 +1,30 @@
+{
+	"name": "csssprite",
+	"version": "0.1.1",
+	"readmeFilename": "README.md",
+	"description": "图片合并",
+	"homepage": "https://github.com/Johnqing/csssprite",
+	"repository": "https://github.com/Johnqing/csssprite",
+	"keywords": [],
+	"main": "./index.js",
+	"dependencies": {
+		"filetools": "*",
+		"imgmerge": "*",
+		"cssom": "*",
+		"commander": "*"
+	},
+	"devDependencies": {
+
+	},
+	"keywords": [
+		"css sprite",
+		"css雪碧"
+	],
+	"author": {
+		"name": "Liu Qing",
+		"email": "csssnow@gmail.com",
+		"url": "http://liuqing.pw/"
+	},
+	"optionalDependencies": {},
+	"license": "BSD"
+}
