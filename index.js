@@ -1,10 +1,15 @@
 var path = require('path'),
 	fs = require('fs'),
 	fTools = require('filetools'),
-	cssom = require('cssom')
+	cssom = require('cssom'),
+	imgTool = require('imgmerge')
 
 var defConf = {
-	workspace: './src/www/front/resource/css'
+	workspace: 'src/www/front/resource/',
+	css_dir: 'css/',
+	output: {
+		img: '/resource/img/sprite'
+	}
 }
 
 /**
@@ -71,7 +76,7 @@ function splitBackground(style){
  * @returns {*}
  */
 function readStyleSheet(fileName){
-	fileName = path.join(defConf.workspace, fileName);
+	fileName = path.join(fileName);
 
 	if(!fs.existsSync(fileName)){
 		return null;
@@ -97,25 +102,39 @@ function collectStyleRules(styleSheet, cssFilePath, result){
 		return result;
 	}
 	var fileDir = path.dirname(cssFilePath);
+
 	// 提取规则
 	styleSheet.cssRules.forEach(function(rule){
 		var style = rule.style;
-		//mixBackground(style);
+
+		//禁止 @import出现 （这种规则是打包策略）
+		if(!style) return
 
 		var imgUrl = getUrl(style, fileDir),
 			imageAbsUrl,
-			fileName
+			fileName,
+			bgRepeat = style['background-repeat'],
+			align = 'N';
 
 		if(imgUrl){
 			imageAbsUrl = path.join(fileDir, imgUrl);
-			fileName = path.join(defConf.workspace, imageAbsUrl);
+			fileName = imageAbsUrl;
 
 			if(!fs.existsSync(fileName)){
 				return;
 			}
 
-			if(!result[imgUrl]){
-				result[imgUrl] = {
+			if(bgRepeat == 'repeat-x'){
+				align = 'X'
+			}
+
+			if(bgRepeat == 'repeat-y'){
+				align = 'Y'
+			}
+
+			if(!result[imageAbsUrl]){
+				result[imageAbsUrl] = {
+					align: align,
 					imageUrl: imgUrl,
 					imageAbsUrl: imageAbsUrl,
 					cssRules: []
@@ -123,7 +142,7 @@ function collectStyleRules(styleSheet, cssFilePath, result){
 				result.length++;
 			}
 
-			result[imgUrl].cssRules.push(style);
+			result[imageAbsUrl].cssRules.push(style);
 
 		}
 
@@ -134,12 +153,13 @@ function collectStyleRules(styleSheet, cssFilePath, result){
 }
 
 function getUrl(style, dir){
-	var backgroundImage = style['background-image'];
 
+	var backgroundImage = style['background-image'];
+	// undefined => return
 	if(!backgroundImage){
 		return null;
 	}
-
+	// 多个图片暂时不支持
 	if(~backgroundImage.indexOf(',')){
 		return null
 	}
@@ -197,13 +217,58 @@ function styleSheetToString(styleSheet) {
 	return result;
 };
 
+/**
+ * 调整 样式规则的像素值, 如果原来就有值, 则在原来的基础上变更
+ */
+function setPxValue(style, attr, newValue){
+	var value;
+	if(style[attr]){
+		value = parseInt(style[attr]);
+	}else{
+		value = 0;
+		style[style.length++] = attr;
+	}
+	value = value - newValue;
+	value = value ? value + 'px' : '0';
+	style[attr] = value;
+}
+
+var updateBackgroundPos = function(obj, styleSheet, type){
+	type = type || '';
+	styleSheet[obj.file].cssRules.forEach(function(style){
+
+		style['background-image'] = 'url(' + defConf.output.img + '/output'+type+'.png' + ')';
+
+		setPxValue(style, 'background-position-x', obj.fit.x);
+		setPxValue(style, 'background-position-y', obj.fit.y);
+
+		mixBackground(style);
+
+	});
+}
+
+
+function exportCssFile(spriteTask){
+	var cssContentList = [],
+		styleSheetArray = [spriteTask.styleSheet],
+		cssContent = ''
+
+	styleSheetArray.forEach(function(styleSheet){
+		cssContentList.push(styleSheetToString(styleSheet));
+	})
+
+	cssContent = cssContentList.join('\n');
+
+	fTools.writeFile(spriteTask.cssFileName, cssContent, 'utf8');
+
+}
 
 
 module.exports = function(opts){
 
 	defConf = fTools.mix(defConf, opts);
 
-	fTools.walk(defConf.workspace, function(list){
+	fTools.walk(defConf.workspace + defConf.css_dir, function(list){
 
 		var spriteTaskArr = [];
 
@@ -223,9 +288,77 @@ module.exports = function(opts){
 			}
 
 			spriteTaskArr.push(spriteTask);
+		});
+		/**
+		 *
+		 */
+		spriteTaskArr.forEach(function(taskArr){
+
+			var noRepeat = [],
+				xRepeat = [],
+				yRepeat = []
+
+			var objList = taskArr.styleObjList;
+
+			for(var key in objList){
+				if(key == 'length') continue
+				switch (objList[key].align){
+					case 'N':
+						noRepeat.push(objList[key].imageAbsUrl)
+						break;
+					case 'X':
+						xRepeat.push(objList[key].imageAbsUrl);
+						break
+					case 'Y':
+						yRepeat.push(objList[key].imageAbsUrl);
+						break;
+				}
+
+			}
+
+			function combo(styleObjArr, type){
+				var draw = imgTool.spFile(styleObjArr, {
+					isNeedAlign: false
+				});
+
+				draw(styleObjArr, type, function(obj){
+					updateBackgroundPos(obj, objList, type);
+				},{
+					public_dir: defConf.workspace + 'img/sprite/'
+				});
+			}
+
+			// packer算法合并
+			if(noRepeat.length){
+				imgTool.imgsPosition(noRepeat, function(obj){
+					combo(obj, null);
+				});
+			}
+
+
+			// repeatX 合并
+			if(xRepeat.length){
+				imgTool.imgsPositionXY(xRepeat, 'X', function(obj){
+					combo(obj, 'X');
+				});
+			}
+
+
+			// repeatY 合并
+			if(yRepeat.length){
+				imgTool.imgsPositionXY(yRepeat, 'Y', function(obj){
+					combo(obj, 'Y');
+				});
+			}
+
+
+			exportCssFile(taskArr)
+
 		})
 
-		console.log(spriteTaskArr)
+		//var code = styleSheetToString(spriteTaskArr);
+		//console.log(spriteTaskArr)
+
 
 	});
 }

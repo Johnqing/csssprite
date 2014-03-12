@@ -12,3 +12,7 @@ npm install csssprite
 ```
 var stm = require('csssprite');
 ```
+
+## 注意
+
+开发中请勿投入生产
